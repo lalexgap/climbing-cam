@@ -1,0 +1,14 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# App data (uploads + generated clips)
+data/
+
+# Model weights (auto-downloaded on first run)
+*.pt
+
+# OS
+.DS_Store

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Climbing Cam</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>🧗 Climbing Cam</h1>
+    <p class="tagline">Drop a route video — get one clip per attempt.</p>
+  </header>
+
+  <main>
+    <section id="drop" class="dropzone">
+      <input type="file" id="file" accept="video/*" hidden />
+      <div class="drop-inner">
+        <p class="big">Drop your climbing video here</p>
+        <p class="muted">or <button id="browse" class="link">browse</button> · MP4 / MOV, any length</p>
+      </div>
+    </section>
+
+    <section id="progress" class="card hidden">
+      <h2 id="stage-label">Working…</h2>
+      <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
+      <p id="progress-msg" class="muted"></p>
+    </section>
+
+    <section id="confirm" class="card hidden">
+      <h2>Which climber is you?</h2>
+      <p class="muted">More than one person climbed in frame. Click yourself.</p>
+      <div id="confirm-frame" class="confirm-frame"></div>
+    </section>
+
+    <section id="results" class="hidden">
+      <div class="results-head">
+        <h2 id="results-title">Attempts</h2>
+        <div class="results-actions">
+          <button id="reveal" class="btn">Reveal in Finder</button>
+          <button id="again" class="btn ghost">New video</button>
+        </div>
+      </div>
+      <div id="clips" class="clips"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
