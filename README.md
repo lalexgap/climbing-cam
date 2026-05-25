@@ -46,6 +46,22 @@ Clips are written to `data/outputs/<job>/attempt_NN.mp4` at source resolution
 Detections are cached to `_detections.json`, so `--recut` re-segments and
 re-cuts in seconds after you tune thresholds in `config.py` — no re-detection.
 
+## Install the Claude Code skill (any machine)
+
+There's a global skill so you can just say "process this climbing video" from
+anywhere — it clones/updates this repo and runs the CLI. Install it on any
+machine (local or a remote/cloud instance) with one command:
+
+```bash
+mkdir -p ~/.claude/skills/climbing-cam && \
+curl -fsSL https://raw.githubusercontent.com/lalexgap/climbing-cam/main/skill/SKILL.md \
+  -o ~/.claude/skills/climbing-cam/SKILL.md
+```
+
+The skill itself handles cloning the repo (to `~/.local/share/climbing-cam`) and
+`uv sync` on first use. The host needs `git`, `uv`, and `ffmpeg`; it uses an
+Apple/NVIDIA GPU if present, otherwise CPU (slower).
+
 ## How it works
 
 1. **Sample** frames at ~3 fps, downscaled (ffmpeg, hardware decode).

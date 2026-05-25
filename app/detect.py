@@ -53,16 +53,20 @@ class DetectionResult:
 
 
 def _resolve_device(requested: str) -> str:
+    """Pick the best available device. "mps"/"auto" prefer Apple GPU, then CUDA
+    (cloud GPUs), then CPU — so the same config works on a Mac or a Linux box."""
     try:
         import torch
 
-        if requested == "mps" and not torch.backends.mps.is_available():
-            return "cpu"
-        if requested == "cuda" and not torch.cuda.is_available():
-            return "cpu"
+        if requested in ("mps", "auto") and torch.backends.mps.is_available():
+            return "mps"
+        if requested in ("cuda", "auto", "mps") and torch.cuda.is_available():
+            return "cuda"
+        if requested == "cuda" and torch.backends.mps.is_available():
+            return "mps"
     except Exception:
-        return "cpu"
-    return requested
+        pass
+    return "cpu"
 
 
 def run_detection(
