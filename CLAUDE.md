@@ -51,3 +51,7 @@ Detection (the slow stage) is cached to `data/outputs/<job>/_detections.json`. `
 ## Speed-ramp the rests (Phase 2, built)
 
 Each clip speeds up hangs (`clip.cut_clip_ramped`, a trim/setpts/concat filtergraph; audio sped with `atempo`). A hang is detected in `classify.rest_intervals` as a sustained **flat-height** stretch (no net climbing progress) on the dropout-interpolated elevation — this catches visible and undetected hangs. Note the limit: a flat crux you're *working* (little height gain) can be mistaken for a rest. We deliberately rejected optical-flow body motion (resting/shaking vs small climbing moves overlap too much) — see git history. Sped sections get an "8×" badge overlaid (`ramp_marker`, a review aid; this ffmpeg build has no `drawtext`, so the badge is a generated PNG overlaid via `overlay`). Tune `rest_speedup`, `min_rest_seconds`, `rest_band_bh`, `rest_inset_seconds` in `config.py`.
+
+## Plugin packaging
+
+This repo is also a Claude Code plugin (`.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json`) bundling two skills under `skills/`: `split` (= `app.cli <video>`) and `check` (= `app.cli --check <video>`), invoked as `/climbing-cam:split` and `/climbing-cam:check`. The plugin carries the code, so the skills run from `$CLAUDE_PLUGIN_ROOT` (falling back to a clone). The marketplace plugin `source` is a `github` object (the plugin is the whole repo, not a subdir). Validate with `claude plugin validate .`. OpenClaw ingests the same Claude-layout bundle via `openclaw plugins install git:github.com/lalexgap/climbing-cam@main`.

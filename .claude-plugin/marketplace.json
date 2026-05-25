@@ -1,0 +1,12 @@
+{
+  "name": "climbing-tools",
+  "owner": { "name": "Alex Gap" },
+  "description": "Tools for processing rock-climbing videos: split into per-attempt clips, and screen footage for climbing.",
+  "plugins": [
+    {
+      "name": "climbing-cam",
+      "source": { "source": "github", "repo": "lalexgap/climbing-cam" },
+      "description": "Split rock-climbing videos into per-attempt clips with rests sped up, and check whether a video has climbing in it."
+    }
+  ]
+}

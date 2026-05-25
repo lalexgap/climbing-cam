@@ -1,0 +1,7 @@
+{
+  "name": "climbing-cam",
+  "description": "Split rock-climbing videos into one clip per attempt (on-wall rests sped up), and quickly check whether a video contains climbing.",
+  "version": "1.0.0",
+  "author": { "name": "Alex Gap" },
+  "homepage": "https://github.com/lalexgap/climbing-cam"
+}
