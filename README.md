@@ -31,11 +31,20 @@ uv run uvicorn app.main:app --port 8000
 # open http://localhost:8000
 ```
 
-Drop a video → watch progress → (click yourself if asked) → preview & download
-clips. "Reveal in Finder" opens the output folder.
+Drop a video → watch progress → preview & download clips. "Reveal in Finder"
+opens the output folder.
+
+Or from the command line:
+
+```bash
+uv run python -m app.cli <video>           # full run: detect → split → cut
+uv run python -m app.cli --recut <job_id>  # re-cut from cached detections (fast)
+```
 
 Clips are written to `data/outputs/<job>/attempt_NN.mp4` at source resolution
 (H.264 via `h264_videotoolbox`, original audio + orientation preserved).
+Detections are cached to `_detections.json`, so `--recut` re-segments and
+re-cuts in seconds after you tune thresholds in `config.py` — no re-detection.
 
 ## How it works
 
@@ -72,13 +81,18 @@ uv run pytest
 The burn-segmentation logic is pure and unit-tested on synthetic signals
 (`tests/test_classify.py`) — no GPU/video needed.
 
-## Roadmap — Phase 2: speed-ramp the rests
+## Speed-ramp the rests
 
-Within each burn, detect "resting on the wall" stretches (elevated but low
-motion, e.g. shaking out or hanging to clip) and speed those up (ffmpeg
-`setpts`), returning to normal speed when you move again. The motion signal from
-segmentation is reused; pose keypoints get added back for the lower, larger part
-of the wall where they're reliable.
+Within each clip, **hangs** are sped up while climbing plays at 1x. A hang is a
+sustained stretch where your **height stays flat** (no net climbing progress) —
+measured on the dropout-interpolated elevation, so it catches both visible and
+undetected hangs. (We tried optical-flow body motion, but on real footage
+resting/shaking and small climbing moves overlap too much to separate; flat
+height is the reliable signal — though it can over-speed a flat crux you're
+working with little height gain.) The speed-up is inset a few seconds on each
+end (`rest_inset_seconds`) and marked with an "8×" badge (`ramp_marker`, a review
+aid — turn off for finals). Tune `rest_speedup`, `min_rest_seconds`,
+`rest_band_bh` in `config.py`.
 
 ## Known assumptions (v1)
 

@@ -10,9 +10,11 @@ A local macOS web app that ingests a fixed-camera rock-climbing video and export
 
 ```bash
 uv sync --extra dev                      # install deps (Python 3.12 via uv)
-uv run uvicorn app.main:app --reload --port 8000   # run the app -> http://localhost:8000
+uv run uvicorn app.main:app --reload --port 8000   # run the web app
+uv run python -m app.cli <video>         # CLI: detect -> split -> cut clips
+uv run python -m app.cli --recut <job>   # re-cut from cached detections (fast)
 uv run pytest                            # run tests
-uv run pytest tests/test_classify.py::test_single_clean_burn   # single test
+uv run pytest tests/test_classify.py::test_flat_hang_is_a_rest   # single test
 ```
 
 YOLO weights (`yolo11m.pt`) auto-download on first detection run. Detection requires ffmpeg on PATH and an Apple GPU (falls back to CPU).
@@ -46,6 +48,6 @@ Detection (the slow stage) is cached to `data/outputs/<job>/_detections.json`. `
 
 `data/` (uploads + generated clips) is gitignored and can be large; delete `data/outputs/<job>` / `data/uploads/<job>` to reclaim space.
 
-## Roadmap
+## Speed-ramp the rests (Phase 2, built)
 
-Phase 2 (not yet built): **speed-ramp the rests** — within a burn, detect on-wall hangs (elevated but low motion) and speed them up with ffmpeg `setpts`, returning to normal speed while moving. Reuses the elevation/motion signal; pose keypoints become useful for the lower, larger part of the wall.
+Each clip speeds up hangs (`clip.cut_clip_ramped`, a trim/setpts/concat filtergraph; audio sped with `atempo`). A hang is detected in `classify.rest_intervals` as a sustained **flat-height** stretch (no net climbing progress) on the dropout-interpolated elevation — this catches visible and undetected hangs. Note the limit: a flat crux you're *working* (little height gain) can be mistaken for a rest. We deliberately rejected optical-flow body motion (resting/shaking vs small climbing moves overlap too much) — see git history. Sped sections get an "8×" badge overlaid (`ramp_marker`, a review aid; this ffmpeg build has no `drawtext`, so the badge is a generated PNG overlaid via `overlay`). Tune `rest_speedup`, `min_rest_seconds`, `rest_band_bh`, `rest_inset_seconds` in `config.py`.

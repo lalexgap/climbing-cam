@@ -85,21 +85,31 @@ def _compute_burns(det, est, cfg, duration) -> list[classify.Burn]:
     return classify.detect_burns_presence(times, present, cfg, duration)
 
 
-def _cut_burns(job, info, burns, cfg, emit) -> list[dict]:
+def _cut_burns(job, info, burns, cfg, emit, times=None, elev=None) -> list[dict]:
     src = Path(job.source)
     clips: list[dict] = []
     for i, burn in enumerate(burns, 1):
         name = f"attempt_{i:02d}.mp4"
-        clip.cut_clip(src, job.out_dir / name, burn.start, burn.end, info, cfg)
+        rests = []
+        if cfg.speed_ramp and elev is not None and times is not None:
+            m = (times >= burn.start) & (times <= burn.end)
+            rests = classify.rest_intervals(times[m], elev[m], cfg)
+            clip.cut_clip_ramped(src, job.out_dir / name, burn.start, burn.end, rests, info, cfg)
+        else:
+            clip.cut_clip(src, job.out_dir / name, burn.start, burn.end, info, cfg)
+        sped = round(sum(b - a for a, b in rests), 1)
         clips.append({
             "name": name,
             "url": f"/api/clip/{job.id}/{name}",
             "start": round(burn.start, 2),
             "end": round(burn.end, 2),
             "duration": round(burn.end - burn.start, 2),
+            "rests": len(rests),
+            "sped_seconds": sped,
         })
         emit({"stage": "cut", "pct": round(i / len(burns), 3),
-              "message": f"Exported {i}/{len(burns)} clips"})
+              "message": f"Exported {i}/{len(burns)} clips"
+                         + (f" ({len(rests)} rests sped up)" if rests else "")})
     return clips
 
 
@@ -149,8 +159,10 @@ def analyze_stream(job: Job, cfg: Config = Config()) -> Iterator[dict]:
             return
 
         burns = _compute_burns(det, est, cfg, info.duration)
+        times = _times(det)
+        elev = classify.frame_max_elevation(det, est) if est.reliable else None
         emit({"stage": "segment", "message": f"Found {len(burns)} attempt(s)."})
-        clips = _cut_burns(job, info, burns, cfg, emit)
+        clips = _cut_burns(job, info, burns, cfg, emit, times, elev)
         emit({"type": "done", "clips": clips})
 
     return _stream(worker)
@@ -165,8 +177,10 @@ def recut_stream(job: Job, cfg: Config = Config()) -> Iterator[dict]:
         info = clip.VideoInfo(meta["width"], meta["height"], meta["duration"], 0.0)
         est = classify.estimate_ground(det, cfg)
         burns = _compute_burns(det, est, cfg, info.duration)
+        times = _times(det)
+        elev = classify.frame_max_elevation(det, est) if est.reliable else None
         emit({"stage": "segment", "message": f"Found {len(burns)} attempt(s)."})
-        clips = _cut_burns(job, info, burns, cfg, emit)
+        clips = _cut_burns(job, info, burns, cfg, emit, times, elev)
         emit({"type": "done", "clips": clips})
 
     return _stream(worker)

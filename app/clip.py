@@ -144,3 +144,90 @@ def cut_clip(
         cmd += ["-an"]
     cmd += ["-movflags", "+faststart", str(out_path)]
     subprocess.run(cmd, check=True, capture_output=True)
+
+
+def _atempo_chain(speed: float) -> str:
+    """ffmpeg atempo accepts 0.5..2.0; chain filters for larger speed-ups."""
+    factors, s = [], speed
+    while s > 2.0:
+        factors.append(2.0)
+        s /= 2.0
+    factors.append(s)
+    return "".join(f",atempo={f:.4f}" for f in factors)
+
+
+def _make_badge(path: Path, speed: float) -> None:
+    """Render a small RGBA ">> Nx" badge PNG (this ffmpeg build lacks drawtext,
+    so we overlay an image instead)."""
+    import cv2
+
+    W, H = 520, 180
+    img = np.zeros((H, W, 4), np.uint8)
+    cv2.rectangle(img, (0, 0), (W - 1, H - 1), (45, 105, 35, 205), -1)      # BGRA fill
+    cv2.rectangle(img, (4, 4), (W - 5, H - 5), (130, 235, 130, 255), 6)     # border
+    cv2.putText(img, f">> {int(speed)}x", (30, 122), cv2.FONT_HERSHEY_DUPLEX,
+                3.2, (255, 255, 255, 255), 6, cv2.LINE_AA)
+    cv2.imwrite(str(path), img)
+
+
+def cut_clip_ramped(
+    src: Path, out_path: Path, start: float, end: float,
+    rests: list[tuple[float, float]], info: VideoInfo, cfg: Config,
+) -> None:
+    """Cut [start, end] but play `rests` (absolute seconds) at cfg.rest_speedup
+    and everything else at 1x, via a trim/setpts/concat filtergraph. Audio is
+    sped with the video (atempo)."""
+    if not rests:
+        return cut_clip(src, out_path, start, end, info, cfg)
+
+    dur = end - start
+    # Burn-relative, clamped, non-overlapping rest spans.
+    rel = sorted((max(0.0, a - start), min(dur, b - start)) for a, b in rests)
+
+    # Alternating segments covering [0, dur]: (a, b, speed).
+    segs, cur = [], 0.0
+    for a, b in rel:
+        a = max(a, cur)
+        if a > cur + 0.05:
+            segs.append((cur, a, 1.0))
+        if b > a + 0.05:
+            segs.append((a, b, cfg.rest_speedup))
+        cur = max(cur, b)
+    if cur < dur - 0.05:
+        segs.append((cur, dur, 1.0))
+
+    n_rest = sum(1 for *_, s in segs if s != 1.0)
+    marker = cfg.ramp_marker and n_rest > 0
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    parts: list[str] = []
+    badge = out_path.parent / "_badge.png"
+    if marker:  # corner "8x" badge overlaid on sped sections
+        _make_badge(badge, cfg.rest_speedup)
+        bw = max(160, info.width // 6)
+        mx = max(16, info.width // 50)            # right margin
+        my = max(48, info.width // 18)            # top margin (lower, off the edge)
+        parts.append(f"[1:v]scale={bw}:-1,format=rgba,split={n_rest}"
+                     + "".join(f"[bd{k}]" for k in range(n_rest)))
+
+    va, k = [], 0
+    for i, (a, b, s) in enumerate(segs):
+        setpts = f"[0:v]trim={a:.3f}:{b:.3f},setpts=(PTS-STARTPTS)/{s}"
+        if marker and s != 1.0:
+            parts.append(f"{setpts}[vr{i}]")
+            parts.append(f"[vr{i}][bd{k}]overlay=W-w-{mx}:{my}[v{i}]")
+            k += 1
+        else:
+            parts.append(f"{setpts}[v{i}]")
+        parts.append(f"[0:a]atrim={a:.3f}:{b:.3f},asetpts=PTS-STARTPTS{_atempo_chain(s)}[a{i}]")
+        va.append(f"[v{i}][a{i}]")
+    fc = ";".join(parts) + ";" + "".join(va) + f"concat=n={len(segs)}:v=1:a=1[outv][outa]"
+
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+           "-ss", f"{start:.3f}", "-t", f"{dur:.3f}", "-i", str(src)]
+    if marker:
+        cmd += ["-i", str(badge)]
+    cmd += ["-filter_complex", fc, "-map", "[outv]", "-map", "[outa]",
+            "-c:v", "h264_videotoolbox", "-b:v", cfg.bitrate_for_height(info.height),
+            "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(out_path)]
+    subprocess.run(cmd, check=True, capture_output=True)

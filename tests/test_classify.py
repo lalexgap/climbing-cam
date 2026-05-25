@@ -13,6 +13,7 @@ from app.classify import (
     detect_burns_presence,
     estimate_ground,
     pick_climber,
+    rest_intervals,
 )
 from app.config import Config
 from app.detect import Detection, DetectionResult, FrameDetections
@@ -118,6 +119,42 @@ def test_presence_fallback_splits_on_long_absence():
     times = np.arange(len(present)) / FPS
     burns = detect_burns_presence(times, present, CFG)
     assert len(burns) == 2
+
+
+# --- rest_intervals (Phase 2 speed-ramping) ---------------------------------
+# A rest = a hang: height stays flat (within rest_band_bh) for >= min_rest_seconds.
+# CFG.min_rest_seconds = 45s, rest_band_bh = 0.2.
+
+def test_flat_hang_is_a_rest():
+    # climb, hang at constant height for 70s, climb on.
+    times, elev = signal([(20, 0.6, 2.6), (70, 2.6, 2.6), (20, 2.6, 4.0)])
+    rests = rest_intervals(times, elev, CFG)
+    assert len(rests) == 1
+    dur = rests[0][1] - rests[0][0]
+    assert 45 <= dur < 70   # detected ~70s flat, inset on both ends
+
+
+def test_undetected_hang_at_same_height_is_a_rest():
+    # 50s undetected, but you reappear at the same height -> flat -> a hang.
+    times, elev = signal([(20, 0.6, 2.6), (50, np.nan, np.nan), (20, 2.6, 4.0)])
+    assert len(rest_intervals(times, elev, CFG)) == 1
+
+
+def test_climbing_through_a_dropout_is_not_a_rest():
+    # 50s undetected, but you reappear much higher -> you were climbing.
+    times, elev = signal([(20, 0.6, 2.6), (50, np.nan, np.nan), (20, 4.6, 6.0)])
+    assert rest_intervals(times, elev, CFG) == []
+
+
+def test_short_flat_is_not_a_rest():
+    # only 20s flat (< min_rest_seconds).
+    times, elev = signal([(20, 0.6, 2.6), (20, 2.6, 2.6), (20, 2.6, 4.0)])
+    assert rest_intervals(times, elev, CFG) == []
+
+
+def test_continuous_climb_has_no_rest():
+    times, elev = signal([(60, 0.6, 5.0)])
+    assert rest_intervals(times, elev, CFG) == []
 
 
 # --- estimate_ground + pick_climber -----------------------------------------

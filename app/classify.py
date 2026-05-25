@@ -267,6 +267,54 @@ def detect_burns(times: np.ndarray, elev: np.ndarray, ground_count: np.ndarray,
     return _build_burns(merged, times, elev, cfg, duration)
 
 
+def _movavg(x: np.ndarray, w: int) -> np.ndarray:
+    if w <= 1:
+        return x
+    pad = w // 2
+    return np.convolve(np.pad(x, pad, mode="edge"), np.ones(w) / w, mode="same")[pad:pad + len(x)]
+
+
+def rest_intervals(times: np.ndarray, elev: np.ndarray, cfg: Config) -> list[tuple[float, float]]:
+    """Find rest (hang) stretches within a burn for Phase 2 speed-ramping.
+
+    A rest is a sustained stretch (>= min_rest_seconds) where your height stays
+    flat — elevation stays within rest_band_bh body-heights (no net climbing
+    progress). Works on the dropout-interpolated elevation, so a hang where you
+    go undetected reads flat too, while climbing through a dropout reads as
+    rising (not a rest). Returns absolute (start, end) times."""
+    times = np.asarray(times, dtype=float)
+    elev = np.asarray(elev, dtype=float)
+    n = len(times)
+    if n < 2:
+        return []
+
+    on_wall = np.isfinite(elev) & (elev >= cfg.leave_bh)
+    if on_wall.sum() < 2:  # whole span undetected -> one long hang if long enough
+        return [(float(times[0]), float(times[-1]))] if times[-1] - times[0] >= cfg.min_rest_seconds else []
+    idx = np.arange(n)
+    e = np.interp(idx, idx[on_wall], elev[on_wall])
+    fps = 1.0 / float(np.median(np.diff(times)))
+    e = _movavg(e, max(1, int(round(cfg.rest_smooth_seconds * fps))))
+
+    # Greedy maximal runs where height stays within rest_band_bh.
+    rests, i = [], 0
+    while i < n:
+        j, lo, hi = i, e[i], e[i]
+        while j + 1 < n and max(hi, e[j + 1]) - min(lo, e[j + 1]) < cfg.rest_band_bh:
+            j += 1
+            lo, hi = min(lo, e[j]), max(hi, e[j])
+        if times[j] - times[i] >= cfg.min_rest_seconds:
+            rests.append((float(times[i]), float(times[j])))
+            i = j + 1
+        else:
+            i += 1
+
+    # Inset each rest so the speed-up starts a little later and ends earlier,
+    # keeping the moves on either side of the hang at normal speed.
+    ins = cfg.rest_inset_seconds
+    return [(a + ins, b - ins) for a, b in rests if (b - ins) - (a + ins) > 0.5]
+
+
 def detect_burns_presence(times: np.ndarray, present: np.ndarray, cfg: Config,
                           duration: float | None = None) -> list[Burn]:
     """Framed-up fallback: any time a person is in frame counts as on-wall.

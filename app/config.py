@@ -93,6 +93,21 @@ class Config:
     # we ask the user to confirm.
     ambiguous_ratio: float = 0.6
 
+    # --- Phase 2: speed-ramp the rests --------------------------------------
+    # A "rest" is a hang: a sustained stretch where your height stays flat — you
+    # make no net vertical progress. Measured on the (dropout-interpolated)
+    # elevation, so it catches both visible hangs and undetected ones. Active
+    # climbing gains height and stays 1x. (We rejected optical-flow body motion:
+    # on real footage resting/shaking and small climbing moves overlap too much.)
+    speed_ramp: bool = True
+    rest_speedup: float = 8.0          # playback speed during a rest
+    min_rest_seconds: float = 45.0     # a flat stretch this long counts as a hang
+    rest_band_bh: float = 0.2          # height stays within this (body-heights) = flat
+    rest_smooth_seconds: float = 5.0   # smooth elevation before flatness test
+    rest_inset_seconds: float = 3.0    # start the speed-up this much later and end
+                                       # it earlier, so moves around a rest stay 1x
+    ramp_marker: bool = True           # green border on sped sections (testing aid)
+
     # --- Encoding (clip cutting) --------------------------------------------
     # Target video bitrate by output height (h264_videotoolbox, in Mbps).
     audio: bool = True
