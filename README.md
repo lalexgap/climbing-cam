@@ -38,8 +38,13 @@ Or from the command line:
 
 ```bash
 uv run python -m app.cli <video>           # full run: detect → split → cut
+uv run python -m app.cli --check <video>   # quick yes/no: is there climbing in it?
 uv run python -m app.cli --recut <job_id>  # re-cut from cached detections (fast)
 ```
+
+`--check` is a fast screen (1 fps, small model) that reports whether a video
+contains climbing — handy for triaging footage before clipping. Exit code 0 if
+climbing is found, 3 if not.
 
 Clips are written to `data/outputs/<job>/attempt_NN.mp4` at source resolution
 (H.264 via `h264_videotoolbox`, original audio + orientation preserved).
@@ -61,6 +66,15 @@ curl -fsSL https://raw.githubusercontent.com/lalexgap/climbing-cam/main/skill/SK
 The skill itself handles cloning the repo (to `~/.local/share/climbing-cam`) and
 `uv sync` on first use. The host needs `git`, `uv`, and `ffmpeg`; it uses an
 Apple/NVIDIA GPU if present, otherwise CPU (slower).
+
+There's also a **`climbing-check`** skill — a quick "does this video have climbing
+in it?" screen for triaging footage:
+
+```bash
+mkdir -p ~/.claude/skills/climbing-check && \
+curl -fsSL https://raw.githubusercontent.com/lalexgap/climbing-cam/main/skill/climbing-check.md \
+  -o ~/.claude/skills/climbing-check/SKILL.md
+```
 
 ## How it works
 

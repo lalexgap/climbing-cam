@@ -93,6 +93,10 @@ class Config:
     # we ask the user to confirm.
     ambiguous_ratio: float = 0.6
 
+    # --- Climbing screening (is there climbing in this video?) --------------
+    # Someone elevated >= ascend_bh for a contiguous stretch this long = climbing.
+    min_climb_seconds: float = 4.0
+
     # --- Phase 2: speed-ramp the rests --------------------------------------
     # A "rest" is a hang: a sustained stretch where your height stays flat — you
     # make no net vertical progress. Measured on the (dropout-interpolated)

@@ -122,6 +122,33 @@ def frame_ground_count(result: DetectionResult, est: GroundEstimate, cfg: Config
     return counts
 
 
+# --- Climbing screening (is there climbing in this video?) ------------------
+
+def climbing_evidence(times: np.ndarray, elev: np.ndarray, cfg: Config) -> dict:
+    """Decide whether a clip contains climbing, from the per-frame max elevation.
+
+    Climbing is present if someone is clearly off the ground (elev >= ascend_bh)
+    for a sustained contiguous stretch (>= min_climb_seconds). Returns the
+    verdict plus evidence (peak height, total + longest elevated time)."""
+    times = np.asarray(times, dtype=float)
+    elev = np.asarray(elev, dtype=float)
+    if len(times) < 2:
+        return {"present": False, "peak_bh": 0.0,
+                "climbing_seconds": 0.0, "longest_stretch_seconds": 0.0}
+
+    dt = float(np.median(np.diff(times)))
+    finite = np.isfinite(elev)
+    peak = float(np.nanmax(elev)) if finite.any() else 0.0
+    high = finite & (elev >= cfg.ascend_bh)
+    longest = max((times[en] - times[s] + dt for s, en in _runs(high)), default=0.0)
+    return {
+        "present": bool(longest >= cfg.min_climb_seconds),
+        "peak_bh": round(peak, 2),
+        "climbing_seconds": round(float(high.sum()) * dt, 1),
+        "longest_stretch_seconds": round(float(longest), 1),
+    }
+
+
 # --- Climber selection -------------------------------------------------------
 
 def pick_climber(result: DetectionResult, est: GroundEstimate, cfg: Config) -> ClimberPick:

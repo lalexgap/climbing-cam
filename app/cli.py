@@ -1,6 +1,7 @@
 """Command-line entry point for the climbing-cam pipeline.
 
     uv run python -m app.cli <video>            # full run: detect -> split -> cut
+    uv run python -m app.cli --check <video>    # quick: is there climbing in it?
     uv run python -m app.cli --recut <job_id>   # re-cut from cached detections
 
 Full runs point the job's source directly at <video> (no copy). Clips land in
@@ -37,6 +38,31 @@ def _report(clips: list[dict], out_dir: Path) -> None:
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     cfg = Config()
+
+    if argv and argv[0] == "--check":
+        from . import screen
+        if len(argv) < 2:
+            print("usage: python -m app.cli --check <video>")
+            return 2
+        video = Path(argv[1]).expanduser().resolve()
+        if not video.exists():
+            print(f"video not found: {video}")
+            return 2
+        print(f"Screening {video.name} for climbing…")
+        last = [0]
+
+        def tick(f: float) -> None:
+            if int(f * 100) >= last[0] + 25:
+                last[0] = int(f * 100)
+                print(f"  …{last[0]}%", flush=True)
+
+        ev = screen.screen_video(video, cfg, progress=tick)
+        verdict = "YES — climbing detected" if ev["present"] else "no climbing detected"
+        print(f"\n{verdict}")
+        print(f"  peak height: {ev['peak_bh']} body-heights | "
+              f"longest stretch: {ev['longest_stretch_seconds']}s | "
+              f"total on-wall: {ev['climbing_seconds']}s of {ev['duration']}s")
+        return 0 if ev["present"] else 3
 
     if argv and argv[0] == "--recut":
         if len(argv) < 2:

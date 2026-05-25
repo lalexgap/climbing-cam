@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from app.classify import (
+    climbing_evidence,
     detect_burns,
     detect_burns_presence,
     estimate_ground,
@@ -155,6 +156,25 @@ def test_short_flat_is_not_a_rest():
 def test_continuous_climb_has_no_rest():
     times, elev = signal([(60, 0.6, 5.0)])
     assert rest_intervals(times, elev, CFG) == []
+
+
+# --- climbing_evidence (is there climbing in this video?) -------------------
+
+def test_climbing_is_detected():
+    times, elev = signal([(10, 0, 0), (10, 0, 3), (10, 3, 3), (10, 3, 0)])
+    ev = climbing_evidence(times, elev, CFG)
+    assert ev["present"] and ev["peak_bh"] >= 2.5
+
+
+def test_no_climbing_on_the_ground():
+    times, elev = signal([(30, 0.2, 0.2)])
+    assert climbing_evidence(times, elev, CFG)["present"] is False
+
+
+def test_brief_elevation_is_not_climbing():
+    # a ~2s spike above ascend_bh (< min_climb_seconds) -> not climbing.
+    times, elev = signal([(20, 0, 0), (2, 0, 2), (2, 2, 0), (20, 0, 0)])
+    assert climbing_evidence(times, elev, CFG)["present"] is False
 
 
 # --- estimate_ground + pick_climber -----------------------------------------
