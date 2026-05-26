@@ -13,6 +13,7 @@ or 4K.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,26 +26,48 @@ OUTPUT_DIR = DATA_DIR / "outputs"
 WEB_DIR = PROJECT_DIR / "web"
 
 
+def env(name: str, default: str) -> str:
+    return os.environ.get(name, default)
+
+
+def env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    return default if raw is None else float(raw)
+
+
+def env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    return default if raw is None else int(raw)
+
+
+def env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Config:
     # --- Frame sampling (analysis only; clips are cut from the original) -----
     # 2 fps = 0.5s resolution, ample given the 8s/15s burn thresholds, and ~33%
     # faster than 3 fps. Bump up if you need finer burn boundaries.
-    analysis_fps: float = 2.0
+    analysis_fps: float = env_float("CLIMBING_CAM_ANALYSIS_FPS", 2.0)
     # Width we downscale frames to before detection. Higher preserves a small,
     # distant climber high on a tall route at the cost of speed. Key tuning knob:
     # 1920 reliably catches a distant outdoor climber (~70% frame recall on a 4K
     # portrait route); drop to 1280 for ~2x faster runs if your climber is large
     # in frame.
-    analysis_width: int = 1920
+    analysis_width: int = env_int("CLIMBING_CAM_ANALYSIS_WIDTH", 1920)
 
     # --- Detection / tracking ------------------------------------------------
-    model: str = "yolo11m.pt"   # detection model; auto-downloads on first use
-    device: str = "mps"          # Apple GPU; falls back to "cpu" if unavailable
-    person_class: int = 0        # COCO "person"
-    conf: float = 0.20           # low-ish to catch the small distant climber
-    imgsz: int = 1920            # inference size; match analysis_width
-    tracker: str = "bytetrack.yaml"
+    model: str = env("CLIMBING_CAM_MODEL", "yolo11m.pt")
+    screen_model: str = env("CLIMBING_CAM_SCREEN_MODEL", "yolo11s.pt")
+    device: str = env("CLIMBING_CAM_DEVICE", "mps")
+    person_class: int = env_int("CLIMBING_CAM_PERSON_CLASS", 0)
+    conf: float = env_float("CLIMBING_CAM_CONF", 0.20)
+    imgsz: int = env_int("CLIMBING_CAM_IMGSZ", 1920)
+    tracker: str = env("CLIMBING_CAM_TRACKER", "bytetrack.yaml")
 
     # --- Ground band + elevation --------------------------------------------
     # Ground line estimated as this percentile of all person box-bottoms (image
@@ -103,14 +126,13 @@ class Config:
     # elevation, so it catches both visible hangs and undetected ones. Active
     # climbing gains height and stays 1x. (We rejected optical-flow body motion:
     # on real footage resting/shaking and small climbing moves overlap too much.)
-    speed_ramp: bool = True
-    rest_speedup: float = 8.0          # playback speed during a rest
-    min_rest_seconds: float = 45.0     # a flat stretch this long counts as a hang
-    rest_band_bh: float = 0.2          # height stays within this (body-heights) = flat
-    rest_smooth_seconds: float = 5.0   # smooth elevation before flatness test
-    rest_inset_seconds: float = 3.0    # start the speed-up this much later and end
-                                       # it earlier, so moves around a rest stay 1x
-    ramp_marker: bool = True           # green border on sped sections (testing aid)
+    speed_ramp: bool = env_bool("CLIMBING_CAM_SPEED_RAMP", True)
+    rest_speedup: float = env_float("CLIMBING_CAM_REST_SPEEDUP", 8.0)
+    min_rest_seconds: float = env_float("CLIMBING_CAM_MIN_REST_SECONDS", 45.0)
+    rest_band_bh: float = env_float("CLIMBING_CAM_REST_BAND_BH", 0.2)
+    rest_smooth_seconds: float = env_float("CLIMBING_CAM_REST_SMOOTH_SECONDS", 5.0)
+    rest_inset_seconds: float = env_float("CLIMBING_CAM_REST_INSET_SECONDS", 3.0)
+    ramp_marker: bool = env_bool("CLIMBING_CAM_RAMP_MARKER", True)
 
     # --- Encoding (clip cutting) --------------------------------------------
     # Target video bitrate by output height (h264_videotoolbox, in Mbps).

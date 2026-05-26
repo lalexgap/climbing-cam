@@ -4,8 +4,8 @@ Drop a long, mostly-dead climbing video in, get one tight clip per attempt out.
 
 Climbing Cam analyzes a route video, detects when you're actually on the wall,
 and exports a separate clip for each **burn** — trimmed to start as you leave the
-ground and end just after your high point. All processing runs **locally** on
-your Mac with GPU (Metal/MPS) acceleration; nothing is uploaded anywhere.
+ground and end just after your high point. All processing runs **locally**; it
+uses Apple/NVIDIA GPU acceleration when available and falls back to CPU.
 
 ## What it's tuned for
 
@@ -21,8 +21,8 @@ your Mac with GPU (Metal/MPS) acceleration; nothing is uploaded anywhere.
 
 ## Requirements
 
-Already present on this machine: **ffmpeg**, **uv**, an Apple-Silicon GPU. The
-first run auto-downloads the YOLO weights (~40 MB).
+Already present on this machine: **ffmpeg** and **uv**. The first run
+auto-downloads the YOLO weights.
 
 ## Run it
 
@@ -47,9 +47,21 @@ contains climbing — handy for triaging footage before clipping. Exit code 0 if
 climbing is found, 3 if not.
 
 Clips are written to `data/outputs/<job>/attempt_NN.mp4` at source resolution
-(H.264 via `h264_videotoolbox`, original audio + orientation preserved).
-Detections are cached to `_detections.json`, so `--recut` re-segments and
-re-cuts in seconds after you tune thresholds in `config.py` — no re-detection.
+(H.264 via VideoToolbox on macOS, `libx264` elsewhere, original audio +
+orientation preserved). Detections are cached to `_detections.json`, so
+`--recut` re-segments and re-cuts in seconds after you tune thresholds in
+`config.py` — no re-detection.
+
+Runtime model/config overrides are available through environment variables:
+
+```bash
+CLIMBING_CAM_MODEL=yolo11m-pose.pt \
+CLIMBING_CAM_SCREEN_MODEL=yolo11s-pose.pt \
+uv run python -m app.cli --check route.mov
+```
+
+Pose models still use the tracked person boxes for the elevation signal, but
+let services opt into Ultralytics' pose weights without patching source files.
 
 ## Install as a plugin (skills you can trigger anywhere)
 
@@ -82,8 +94,8 @@ GPU if present, otherwise CPU (slower). Update later with
 ## How it works
 
 1. **Sample** frames at ~3 fps, downscaled (ffmpeg, hardware decode).
-2. **Detect + track** people with YOLO (`yolo11m`) + ByteTrack on the GPU —
-   plain bounding boxes, which stay reliable when you're small and far up.
+2. **Detect + track** people with YOLO (`yolo11m` by default, pose weights
+   supported through env config) + ByteTrack.
 3. **Elevation signal**: per frame, take the height of the *highest* person out
    of the estimated ground band (in self-calibrating *body-heights*). Being
    track-agnostic, it's immune to ByteTrack re-IDing the climber mid-ascent.

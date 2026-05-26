@@ -1,8 +1,8 @@
 """Person detection + tracking over sampled frames using Ultralytics YOLO.
 
-Phase 1 uses plain person bounding boxes (no pose): they stay reliable when the
-climber is small and distant high on the wall, and the box is all we need for
-the elevation signal.
+The elevation signal consumes tracked person boxes. Default models are box
+detectors, but Ultralytics pose models are also supported because they still
+return person boxes alongside keypoints.
 """
 
 from __future__ import annotations
