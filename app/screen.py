@@ -27,7 +27,7 @@ def screen_video(
     # climber elevated somewhere in the clip without a full-quality pass.
     scfg = dataclasses.replace(
         cfg, analysis_fps=1.0, analysis_width=960, imgsz=960,
-        model="yolo11s.pt", conf=0.20,
+        model=cfg.screen_model, conf=0.20,
     )
     det = detect.run_detection(video_path, info, scfg, progress)
     est = classify.estimate_ground(det, scfg)
