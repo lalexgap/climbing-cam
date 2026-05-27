@@ -122,6 +122,23 @@ def frame_ground_count(result: DetectionResult, est: GroundEstimate, cfg: Config
     return counts
 
 
+def frame_top_exit(result: DetectionResult, cfg: Config) -> np.ndarray:
+    """True where the highest person's box touches the top edge of the frame.
+
+    Distinguishes "climbed out the top of frame" (still on the wall, just no
+    longer visible) from "came down": both leave only the belayer in view, so the
+    elevation signal can't tell them apart, but a climber exiting the top has a
+    box jammed against y=0. detect_burns uses this so a long out-of-frame stretch
+    on one continuous ascent isn't mistaken for a between-attempt rest."""
+    margin = cfg.top_exit_frac * result.frame_height
+    out = np.zeros(len(result.frames), dtype=bool)
+    for i, fd in enumerate(result.frames):
+        if fd.detections:
+            highest = min(fd.detections, key=lambda d: d.y2)  # smallest y2 = highest
+            out[i] = highest.y1 <= margin
+    return out
+
+
 # --- Climbing screening (is there climbing in this video?) ------------------
 
 def climbing_evidence(times: np.ndarray, elev: np.ndarray, cfg: Config) -> dict:
@@ -200,6 +217,21 @@ def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
     return runs
 
 
+def _despike(mask: np.ndarray, times: np.ndarray, min_seconds: float) -> np.ndarray:
+    """Drop True-runs shorter than `min_seconds`. An isolated enter_bh frame is a
+    detection spike (e.g. a person-shaped shadow/crack in the rock), not a real
+    on-wall moment — and since a burn ends at its last enter_bh frame, one such
+    spike can otherwise stretch a burn boundary by minutes. Matters most for the
+    higher-recall pose detector, which trades a little precision for that recall."""
+    if min_seconds <= 0:
+        return mask
+    out = mask.copy()
+    for s, e in _runs(mask):
+        if times[e] - times[s] < min_seconds:
+            out[s:e + 1] = False
+    return out
+
+
 def _has_ground_rest(ground_count: np.ndarray, times: np.ndarray,
                      lo: int, hi: int, cfg: Config) -> bool:
     """True if the gap [lo, hi] contains a sustained stretch (>= ground_rest_seconds)
@@ -243,12 +275,20 @@ def _build_burns(merged: list[list[int]], times: np.ndarray, elev: np.ndarray | 
     return burns
 
 
-def _extend_start(active: np.ndarray, times: np.ndarray, s: int, link: float) -> int:
+def _extend_start(active: np.ndarray, times: np.ndarray, s: int, link: float,
+                  floor: int = 0, max_lead: float = 0.0) -> int:
     """Walk the burn start back through leave_bh activity immediately preceding
-    it, bridging lulls up to `link` seconds, to catch the first low moves."""
+    it, bridging lulls up to `link` seconds, to catch the first low moves.
+
+    Stops at `floor` (don't cross into a previous burn) and never reaches further
+    than `max_lead` seconds before `s` (the lead-in is the first low moves, not an
+    arbitrarily long on-wall stretch — without this, near-continuous activity from
+    back-to-back goes or other parties walks the start back across the whole video)."""
     new_s, last_active_t = s, times[s]
     i = s - 1
-    while i >= 0:
+    while i >= floor:
+        if max_lead > 0 and times[s] - times[i] > max_lead:
+            break
         if active[i]:
             new_s, last_active_t = i, times[i]
         elif last_active_t - times[i] > link:
@@ -258,7 +298,8 @@ def _extend_start(active: np.ndarray, times: np.ndarray, s: int, link: float) ->
 
 
 def detect_burns(times: np.ndarray, elev: np.ndarray, ground_count: np.ndarray,
-                 cfg: Config, duration: float | None = None) -> list[Burn]:
+                 cfg: Config, duration: float | None = None,
+                 at_top: np.ndarray | None = None) -> list[Burn]:
     """Elevation-based burn detection (primary, base-in-frame path).
 
     Bursts are confirmed where elevation clearly reaches the wall (enter_bh);
@@ -266,31 +307,52 @@ def detect_burns(times: np.ndarray, elev: np.ndarray, ground_count: np.ndarray,
     where on-wall activity stops for longer than merge_gap_seconds (you came down
     and rested) or where 2+ people sit at the base for a sustained stretch. Each
     burn's start is then extended back over the first low moves (leave_bh), and it
-    ends at the last enter_bh moment so the lower-off is trimmed."""
+    ends at the last enter_bh moment so the lower-off is trimmed.
+
+    `at_top` (optional, from frame_top_exit) suppresses the long-gap split when the
+    climber exited the top of frame and never came down: that's one continuous
+    ascent with the climber out of view, not two attempts. A genuine come-down
+    (2+ people back at the base) still splits regardless."""
     times = np.asarray(times, dtype=float)
     elev = np.asarray(elev, dtype=float)
     ground_count = np.asarray(ground_count)
     if duration is None:
         duration = float(times[-1]) if len(times) else 0.0
 
-    high = np.isfinite(elev) & (elev >= cfg.enter_bh)
+    enter = np.isfinite(elev) & (elev >= cfg.enter_bh)
+    high = _despike(enter, times, cfg.enter_persist_seconds)
     runs = _runs(high)
     if not runs:
         return []
+    # Where *sustained* climbing happens (a longer persistence than `high`): used
+    # only to anchor a burn's start, so leading non-sustained enter_bh blips —
+    # setting up close to the camera (a too-big box reads as elevated), staging at
+    # the base — don't drag the clip start back before you actually got on route.
+    anchor = _despike(enter, times, cfg.start_anchor_seconds)
 
     merged = [list(runs[0])]
     for s, e in runs[1:]:
-        gap = times[s] - times[merged[-1][1]]
-        if gap >= cfg.merge_gap_seconds or _has_ground_rest(
-            ground_count, times, merged[-1][1] + 1, s - 1, cfg
-        ):
+        e1 = merged[-1][1]
+        gap = times[s] - times[e1]
+        came_down = _has_ground_rest(ground_count, times, e1 + 1, s - 1, cfg)
+        # Did the previous burst end with the climber exiting the top of frame?
+        exited_top = at_top is not None and bool(at_top[max(0, e1 - 2):e1 + 1].any())
+        if came_down or (gap >= cfg.merge_gap_seconds and not exited_top):
             merged.append([s, e])      # real boundary -> new burn
         else:
-            merged[-1][1] = e          # dropout / hang -> merge
+            merged[-1][1] = e          # dropout / hang / out-the-top -> merge
 
     active = np.isfinite(elev) & (elev >= cfg.leave_bh)
+    floor = 0
     for burst in merged:
-        burst[0] = _extend_start(active, times, burst[0], cfg.start_link_seconds)
+        s, e = burst
+        # Anchor the start at the first *sustained* climb within the burst, so
+        # leading short blips are skipped; fall back to the burst start if none.
+        sustained = np.where(anchor[s:e + 1])[0]
+        anchor_idx = s + int(sustained[0]) if len(sustained) else s
+        burst[0] = _extend_start(active, times, anchor_idx, cfg.start_link_seconds,
+                                 floor=floor, max_lead=cfg.max_lead_seconds)
+        floor = e + 1          # next burn's start can't reach into this one
     return _build_burns(merged, times, elev, cfg, duration)
 
 

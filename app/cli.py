@@ -4,6 +4,10 @@
     uv run python -m app.cli --check <video>    # quick: is there climbing in it?
     uv run python -m app.cli --recut <job_id>   # re-cut from cached detections
 
+Flags (anywhere on the line):
+    --pose    full/check runs: use the keypoint-anchored pose detector (experimental)
+    --check --clip <video>   screen with the zero-shot CLIP classifier instead of YOLO
+
 Full runs point the job's source directly at <video> (no copy). Clips land in
 data/outputs/<job>/ and the folder is opened on macOS.
 """
@@ -36,13 +40,20 @@ def _report(clips: list[dict], out_dir: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import dataclasses
+
     argv = list(sys.argv[1:] if argv is None else argv)
+    # Pull out boolean flags so they can appear anywhere; keep mode + positionals.
+    use_clip = "--clip" in argv
+    use_pose = "--pose" in argv
+    argv = [a for a in argv if a not in ("--clip", "--pose")]
     cfg = Config()
+    if use_pose:
+        cfg = dataclasses.replace(cfg, pose=True)
 
     if argv and argv[0] == "--check":
-        from . import screen
         if len(argv) < 2:
-            print("usage: python -m app.cli --check <video>")
+            print("usage: python -m app.cli --check [--clip] <video>")
             return 2
         video = Path(argv[1]).expanduser().resolve()
         if not video.exists():
@@ -56,6 +67,17 @@ def main(argv: list[str] | None = None) -> int:
                 last[0] = int(f * 100)
                 print(f"  …{last[0]}%", flush=True)
 
+        if use_clip:
+            from . import screen_clip
+            ev = screen_clip.screen_video_clip(video, cfg, progress=tick)
+            verdict = "YES — climbing detected" if ev["present"] else "no climbing detected"
+            print(f"\n{verdict}")
+            print(f"  peak score: {ev['peak_score']} | "
+                  f"longest stretch: {ev['longest_stretch_seconds']}s | "
+                  f"total climbing: {ev['climbing_seconds']}s of {ev['duration']}s")
+            return 0 if ev["present"] else 3
+
+        from . import screen
         ev = screen.screen_video(video, cfg, progress=tick)
         verdict = "YES — climbing detected" if ev["present"] else "no climbing detected"
         print(f"\n{verdict}")

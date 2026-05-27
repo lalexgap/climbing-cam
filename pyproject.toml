@@ -18,6 +18,10 @@ dependencies = [
 dev = [
     "pytest>=8.3",
 ]
+# Experimental zero-shot screener (--check --clip). Heavy; opt-in only.
+clip = [
+    "open_clip_torch>=2.24",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

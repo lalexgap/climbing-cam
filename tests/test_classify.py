@@ -109,6 +109,27 @@ def test_high_dropout_does_not_split():
     assert len(burns) == 1
 
 
+def test_climb_out_the_top_of_frame_stays_one_attempt():
+    # Climb up and out the top of frame (at_top while high), gone for a long gap
+    # (only the belayer visible at the base), then lowered back in. One attempt.
+    seg = [(5, 0, 0), (30, 0, 3.0), (390, 0, 0), (20, 3.0, 0)]
+    times, elev = signal(seg)
+    at_top = elev >= 2.5  # box jammed against the top edge while high
+    burns = detect_burns(times, elev, ground(elev), CFG, at_top=at_top)
+    assert len(burns) == 1
+
+
+def test_top_exit_still_splits_if_you_come_back_down_to_rest():
+    # Same long gap, but 2 people sit at the base mid-gap (you came down to rest)
+    # -> a real boundary, split despite the top exit.
+    seg = [(5, 0, 0), (30, 0, 3.0), (390, 0, 0), (20, 0, 3.0), (5, 3.0, 0)]
+    times, elev = signal(seg)
+    at_top = elev >= 2.5
+    rest = (times >= 60) & (times < 400)  # belayer + you at the base for >25s
+    burns = detect_burns(times, elev, ground(elev, rest), CFG, at_top=at_top)
+    assert len(burns) == 2
+
+
 # --- detect_burns_presence (framed-up fallback) -----------------------------
 
 def test_presence_fallback_splits_on_long_absence():

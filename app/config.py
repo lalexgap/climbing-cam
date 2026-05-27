@@ -69,6 +69,17 @@ class Config:
     imgsz: int = env_int("CLIMBING_CAM_IMGSZ", 1920)
     tracker: str = env("CLIMBING_CAM_TRACKER", "bytetrack.yaml")
 
+    # --- Pose variant (experimental) ----------------------------------------
+    # Opt-in: use a YOLO *pose* model and derive each detection's bottom/height
+    # from keypoints (ankles -> nose) instead of the raw box. The box bottom is
+    # inflated by raised arms / dangling rope; an anatomical span gives a steadier
+    # elevation signal. Falls back to the box per-frame when keypoints are too
+    # low-confidence (small/distant/occluded climber). Same framework, same
+    # Detection downstream — classify.py is untouched. Toggle and re-detect.
+    pose: bool = False
+    pose_model: str = "yolo11m-pose.pt"  # auto-downloads on first use
+    kpt_conf: float = 0.30               # min keypoint confidence to trust it
+
     # --- Ground band + elevation --------------------------------------------
     # Ground line estimated as this percentile of all person box-bottoms (image
     # y grows downward, so the ground band sits at a high y value).
@@ -86,6 +97,11 @@ class Config:
     leave_bh: float = 0.5
     enter_bh: float = 1.0
     exit_bh: float = 0.4
+    # An enter_bh crossing must persist at least this long to count as on-wall
+    # (vs. a one-frame detection spike on a person-shaped rock feature). At the
+    # default 2 fps this requires ~2+ consecutive elevated frames. Guards the
+    # burn end especially under the higher-recall pose detector.
+    enter_persist_seconds: float = 1.0
 
     # --- Burn segmentation ---------------------------------------------------
     # Splitting one video into separate attempts. Consecutive on-wall stretches
@@ -96,6 +112,11 @@ class Config:
     # reliable than counting people on the ground.) A sustained 2+ people-at-base
     # stretch also forces a boundary when it *is* visible.
     merge_gap_seconds: float = 300.0
+    # A climber whose box top is within this fraction of the frame's top edge has
+    # "climbed out the top of frame". Such an exit suppresses the long-gap split
+    # (you're still on the same ascent, just out of view) unless you actually come
+    # back down to the base — so a route climbed up out of frame stays one attempt.
+    top_exit_frac: float = 0.06
     min_ground_people: int = 2
     ground_rest_seconds: float = 25.0
     min_burn_seconds: float = 15.0    # discard on-wall runs shorter than this
@@ -103,6 +124,16 @@ class Config:
     # to this long (you momentarily undetected near the ground); stop at the
     # first longer gap so we don't grab pre-climb faffing at the base.
     start_link_seconds: float = 8.0
+    # A burn's start anchors at the first enter_bh run that lasts at least this
+    # long (sustained climbing). Leading shorter blips — near-camera setup, base
+    # staging — are skipped so the clip starts when you actually got on route.
+    start_anchor_seconds: float = 15.0
+    # Hard cap on the start-extension: the lead-in is the *first low moves*, so it
+    # should never reach more than this far before the confirmed climb. Guards the
+    # near-continuous-activity case (back-to-back goes / other parties on the wall)
+    # where the leave_bh signal never drops and the start would otherwise walk back
+    # across the whole video, swallowing earlier attempts.
+    max_lead_seconds: float = 60.0
     lost_timeout_seconds: float = 30.0  # framed-up fallback: merge gaps under this
     pad_lead_seconds: float = 3.0     # include this much before leaving the ground
     apex_tail_seconds: float = 3.0    # clip ends this long after the last on-wall moment
@@ -119,6 +150,16 @@ class Config:
     # --- Climbing screening (is there climbing in this video?) --------------
     # Someone elevated >= ascend_bh for a contiguous stretch this long = climbing.
     min_climb_seconds: float = 4.0
+
+    # --- CLIP screening variant (experimental; --check --clip) --------------
+    # Zero-shot "does this frame look like climbing?" — no people/elevation
+    # logic. A frame counts when its summed positive-prompt probability clears
+    # clip_threshold; the video counts when a contiguous run exceeds
+    # min_climb_seconds. Needs the optional `clip` extra (open_clip_torch).
+    clip_model: str = "ViT-B-32"
+    clip_pretrained: str = "laion2b_s34b_b79k"
+    clip_fps: float = 1.0
+    clip_threshold: float = 0.5
 
     # --- Phase 2: speed-ramp the rests --------------------------------------
     # A "rest" is a hang: a sustained stretch where your height stays flat — you

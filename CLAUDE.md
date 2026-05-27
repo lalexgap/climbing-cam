@@ -37,6 +37,8 @@ Pipeline stages (`pipeline.analyze_stream`):
 - Elevation is measured as **body-heights above an estimated ground band** (`estimate_ground`): self-calibrating across camera distance / resolution.
 - The signal is **track-agnostic** (`frame_max_elevation`: the highest person per frame), *deliberately not* per-track — ByteTrack re-IDs a small/distant climber into many fragments, so following any single track is unreliable. The belayer / people at the base sit near elevation 0 and are ignored automatically.
 - `detect_burns` confirms a burst where elevation reaches `enter_bh`, **merges through** short gaps (detection dropouts, on-wall hangs), and **splits** into a new attempt only when on-wall activity stops for longer than `merge_gap_seconds` (you came down and rested — far more reliable than counting people at the base, which is often hidden). A burn's **start** is extended back over the first low moves (`leave_bh`); its **end** is the last `enter_bh` moment, trimming the lower-off.
+  - The start-extension is **bounded**: it stops at the previous burn (clips stay disjoint) and reaches at most `max_lead_seconds` before the confirmed climb — otherwise near-continuous on-wall activity (back-to-back goes, other parties) walks a later burn's start back across the whole video and swallows earlier ones.
+  - A long gap is **not** a split if the climber **exited the top of frame** (`frame_top_exit` / `at_top`, gated by `top_exit_frac`) and never came back down: climbing up out of view reads in `frame_max_elevation` like coming down (only the belayer left at ~0), but a box jammed against `y=0` says you're still on the wall. A genuine come-down (2+ people back at the base) still splits.
 
 ### Tuning surface
 
@@ -51,6 +53,22 @@ Detection (the slow stage) is cached to `data/outputs/<job>/_detections.json`. `
 ## Speed-ramp the rests (Phase 2, built)
 
 Each clip speeds up hangs (`clip.cut_clip_ramped`, a trim/setpts/concat filtergraph; audio sped with `atempo`). A hang is detected in `classify.rest_intervals` as a sustained **flat-height** stretch (no net climbing progress) on the dropout-interpolated elevation — this catches visible and undetected hangs. Note the limit: a flat crux you're *working* (little height gain) can be mistaken for a rest. We deliberately rejected optical-flow body motion (resting/shaking vs small climbing moves overlap too much) — see git history. Sped sections get an "8×" badge overlaid (`ramp_marker`, a review aid; this ffmpeg build has no `drawtext`, so the badge is a generated PNG overlaid via `overlay`). Tune `rest_speedup`, `min_rest_seconds`, `rest_band_bh`, `rest_inset_seconds` in `config.py`.
+
+## Experimental variants (opt-in, off by default)
+
+Two alternative paths exist behind flags; neither changes default behavior.
+
+- **Pose detection** (`cfg.pose` / `--pose`). Uses a YOLO *pose* model (`pose_model`) and anchors each detection's bottom/height to keypoints (ankles → nose) instead of the raw box, via `detect._pose_anchor`, falling back to the box per-end when keypoints are below `kpt_conf`. The emitted `Detection` stays box-shaped, so **`classify.py` is untouched**. Only `detect.run_detection` changes; detection is cached as usual, so you must re-detect (not `--recut`) to try it.
+- **CLIP screener** (`app/screen_clip.py` / `--check --clip`). A zero-shot "does this frame look like climbing?" classifier — no people/elevation logic at all — for the *check* path. Needs the optional `clip` extra (`uv sync --extra clip`, pulls `open_clip_torch`), lazy-imported so the module loads without it. Knobs: `clip_model`/`clip_pretrained`/`clip_fps`/`clip_threshold`.
+
+**A/B harness** (`app/ab.py`, `uv run python -m app.ab <video> [--csv out.csv]`): detects a video twice (box vs pose), prints each variant's ground estimate, peak elevation, burns, and an ASCII elevation sparkline, plus the box-vs-pose correlation; `--csv` dumps per-frame elevations. Use it to evaluate the pose path before committing.
+
+**Validated findings (2026-05-25), via `app.ab` + rendering real detections on the divergent frames:**
+- *Single-attempt ~15min clip:* pose's divergence from box (r≈0.80) is a **recall win, not noise** — box repeatedly loses the small distant climber (frame-max collapses to the belayer at ~0) where pose holds it at ~2.9 bh, and pose also caught a low climber box missed for the first ~3.5 min. Pose's earlier/longer burns were *more* correct, not over-extended.
+- *Multi-attempt ~28min clip:* both detectors found the same **2 attempts** (no over-merge — the main risk), r≈0.99. But pose's higher recall came with the expected cost: a **single false-positive frame** (a person-shaped shadow/crack in the rock at elev 7.1 bh) stretched a burn end by ~280s, because a burn ends at its *last* `enter_bh` frame.
+- *Fix:* `detect_burns` now `_despike`s the enter_bh mask (`enter_persist_seconds`, default 1.0s ≈ 2 frames at 2fps), so a lone spike can't define a boundary. With it, pose's burns match box's (236-552 / 1170-1693 vs 247-550 / 1115-1693). Helps both paths; de-risks pose specifically.
+
+Pose still needs a framed-up-footage check before becoming the default. CLIP screener is unvalidated (never run). See `memory/pose-recall-win.md`.
 
 ## Plugin packaging
 

@@ -80,13 +80,18 @@ def _compute_burns(det, est, cfg, duration) -> list[classify.Burn]:
         elev = classify.frame_max_elevation(det, est)
         if np.isfinite(elev).any() and np.nanmax(elev) >= cfg.ascend_bh:
             ground_count = classify.frame_ground_count(det, est, cfg)
-            return classify.detect_burns(times, elev, ground_count, cfg, duration)
+            at_top = classify.frame_top_exit(det, cfg)
+            return classify.detect_burns(times, elev, ground_count, cfg, duration, at_top)
     present = classify.frame_presence(det)
     return classify.detect_burns_presence(times, present, cfg, duration)
 
 
 def _cut_burns(job, info, burns, cfg, emit, times=None, elev=None) -> list[dict]:
     src = Path(job.source)
+    # Clear clips from any prior run so a re-cut that yields fewer attempts
+    # doesn't leave stale attempt_NN.mp4 files behind.
+    for old in job.out_dir.glob("attempt_*.mp4"):
+        old.unlink()
     clips: list[dict] = []
     for i, burn in enumerate(burns, 1):
         name = f"attempt_{i:02d}.mp4"

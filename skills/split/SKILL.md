@@ -38,4 +38,8 @@ folder opens on macOS.
   / `min_rest_seconds` / `rest_band_bh` (rest speed-ramp), `ramp_marker` (the "8×"
   review badge — set False for final exports), `analysis_width`/`imgsz` (recall).
 - To just check whether a video has climbing, use the **check** skill.
+- Experimental: add `--pose` to detect with a keypoint-anchored pose model
+  (ankles → nose) instead of plain person boxes — better recall on a small distant
+  climber in early testing. Re-detects (not compatible with `--recut`); see
+  `CLAUDE.md` for the A/B harness (`app.ab`) and findings.
 - `README.md` / `CLAUDE.md` in `$ROOT` have the architecture and known limits.

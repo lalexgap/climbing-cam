@@ -42,3 +42,7 @@ done
 
 - To actually split a climbing video into clips, use the **split** skill.
 - Tune sensitivity via `min_climb_seconds` / `ascend_bh` in `app/config.py`.
+- Experimental: add `--clip` (`--check --clip <video>`) to screen with a zero-shot
+  CLIP classifier instead of person-detection + elevation. Needs the optional extra
+  (`uv sync --extra clip`). Useful when the base isn't in frame, where the geometric
+  signal is weakest. Tune `clip_threshold` in `app/config.py`.

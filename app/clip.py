@@ -193,7 +193,11 @@ def cut_clip(
         cmd += ["-c:a", "aac", "-b:a", "160k"]
     else:
         cmd += ["-an"]
-    cmd += ["-movflags", "+faststart", str(out_path)]
+    # Carry the original's creation date + GPS location (com.apple.quicktime.*)
+    # into the clip; use_metadata_tags preserves the custom QuickTime tags that
+    # -map_metadata alone would drop on re-encode.
+    cmd += ["-map_metadata", "0",
+            "-movflags", "use_metadata_tags+faststart", str(out_path)]
     _run_logged(cmd)
 
 
@@ -305,10 +309,14 @@ def cut_clip_ramped(
 
         concat_file = tmp_dir / "concat.txt"
         concat_file.write_text("".join(f"file '{p}'\n" for p in part_paths))
+        # Concat the parts and copy the original's date + GPS location across
+        # from a metadata-only second input (the parts dropped it on re-encode).
         cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
             "-f", "concat", "-safe", "0", "-i", str(concat_file),
-            "-c", "copy", "-movflags", "+faststart", str(out_path),
+            "-i", str(src),
+            "-map", "0", "-map_metadata", "1", "-c", "copy",
+            "-movflags", "use_metadata_tags+faststart", str(out_path),
         ]
         _run_logged(cmd)
     finally:
